@@ -38,7 +38,8 @@ def handleChunkIndex(idx, s):
 class Protocol_Serial(ARQ_Protocol):
 
 	def openDevice(self, dev = None):
-		kwargs = dict(baudrate = 9600, timeout = 0.01)
+		kwargs = dict(baudrate = 460800)
+		kwargs['timeout'] = 100. / kwargs['baudrate']
 		if not dev: dev = serialChecker()
 		print("Device:{}".format(dev))
 		self.dev = serial.Serial(dev, **kwargs)
@@ -54,13 +55,13 @@ class Protocol_Serial(ARQ_Protocol):
 	def sendByte(self, b):
 		txStamps.append(time.time())
 		self.dev.write(b)
-		yield from asyncio.sleep(0.001)
+		#yield from asyncio.sleep(0.0001)
 		txStamps.append(time.time())
 
 	@asyncio.coroutine
 	def recvByte(self):
 		while not(self.dev.inWaiting()):
-			yield from asyncio.sleep(0.001)
+			yield from asyncio.sleep(20./self.dev.baudrate)
 #			time.sleep(0.001)
 		rxStamps.append(time.time())
 #		return self.dev.read(1)
@@ -102,7 +103,7 @@ if __name__ == '__main__':
 		gs = 4
 		if len(sys.argv)>4: ps = int(sys.argv[4])
 		if len(sys.argv)>5: gs = int(sys.argv[5])
-		p = Protocol_Serial(timeout = 1.)
+		p = Protocol_Serial(timeout = 1., debug = False)
 		p.openDevice(dev)
 		p.sendFrames(iterFileWithChunkIndex(open(fn, 'rb'), ps), mode = gs)
 		time.sleep(0.1)
@@ -120,17 +121,20 @@ if __name__ == '__main__':
 		print(records)
 
 	if fPlot:
+		SR = 400
 		def genUsage(s):
 			ss = 0
 			t_st = s[0]
 			ts = [0]
 			us = [0]
 			for i, t in enumerate(s[1:-1]):
-				ts.append(t - t_st)
-				ts.append(t - t_st)
-				us.append(i & 1)
-				us.append(1 - (i & 1))
 				ss += t if (i & 1) else -t
+				if i % SR == 0:
+					i = int(i / SR)
+					ts.append(t - t_st)
+					ts.append(t - t_st)
+					us.append(i & 1)
+					us.append(1 - (i & 1))
 			ts.append(s[-1] - t_st)
 			us.append(0)
 			return ts, us, ss /(s[-1] - s[0])

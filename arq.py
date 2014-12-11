@@ -160,7 +160,7 @@ class ARQ_Protocol():
 		def checkLater(idx, value): 	# Check if idx is sucessfully sent
 			yield from asyncio.sleep(self.timeout)
 			if (pos[idx] == value) and (idx not in busy):
-				print("ARQ {} response timeout.".format(idx))
+				print("Frame {} response timeout.".format(idx))
 				busy.append(idx) 	# Reschedule
 
 		@asyncio.coroutine
