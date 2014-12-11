@@ -7,16 +7,34 @@ Version	:0.0.1
 
 """
 
-from arq import iterFile, ARQ_Protocol
+from arq import ARQ_Protocol
 
 import asyncio
-
 
 import select as sl
 import sys, time
 
 
-class P2(ARQ_Protocol):
+def iterFileWithChunkIndex(f, chunk_size):
+	idx = 0
+	while True:
+		r = f.read(chunk_size)
+		idx += 1
+		if r: r = str(idx).encode() + b':' + r
+		yield r
+		if not r: break # yield '' for EOF
+
+records = {}
+def handleChunkIndex(idx, s):
+	s = s.decode('utf-8', 'ignore')
+	cPos = s.index(':')
+	chunk_idx, s = int(s[:cPos]), s[cPos+1:]
+	if not((idx in records) and (records[idx] == chunk_idx)):
+		records[idx] = chunk_idx
+		print('[%4d][%4d]' % (idx, chunk_idx), s)
+
+
+class Protocol_Socket(ARQ_Protocol):
 
 	def openDevice(self, fTxSock, fRxSock, seq = 1):
 		if seq:
@@ -43,17 +61,16 @@ class P2(ARQ_Protocol):
 
 		self.odev.write(b)
 		self.odev.flush()
-		yield from asyncio.sleep(0.001)
+		yield from asyncio.sleep(0.001)	# Simulate waiting
 
 		txStamps.append(time.time())
 
 	@asyncio.coroutine
 	def recvByte(self):
 		while True:
-			r, w, e = sl.select([self.idev], [], [], 0)
+			r, w, e = sl.select([self.idev], [], [], 0)	# ioctl selector
 #			print(r,w,e)
 			if self.idev in r:
-
 				rxStamps.append(time.time())
 
 #				return self.idev.read(1)
@@ -96,18 +113,20 @@ if __name__ == '__main__':
 		gs = 4
 		if len(sys.argv)>3: ps = int(sys.argv[3])
 		if len(sys.argv)>4: gs = int(sys.argv[4])
-		p = P2()
+		p = Protocol_Socket()
 		p.openDevice('tx.sock', 'rx.sock', 0)
-		p.sendPackets(iterFile(open(fn, 'rb'), ps), mode = gs)
-		time.sleep(0.1)
+		p.sendFrames(iterFileWithChunkIndex(open(fn, 'rb'), ps), mode = gs)
+#		time.sleep(0.1)	# Wait
 		p.closeDevice()
 
 
 	if mode == 'recv':
-		p = P2(debug = False)
+		p = Protocol_Socket(debug = False)
 		p.openDevice('rx.sock', 'tx.sock')
-		p.recvPackets()
+		p.recvFrames(process = handleChunkIndex)
 		p.closeDevice()
+
+		print(records)
 
 	if fPlot:
 		def genUsage(s):
@@ -129,14 +148,18 @@ if __name__ == '__main__':
 
 		t, u, r = genUsage(txStamps)
 		print("Tx use rate = ", r)
-		subplot(211, title='tx')
+		subplot(211, title='TX usage')
 		fill_between(t, 0, u)
 		plot(t, u)
+		xlabel('Time/s')
+		yticks([])
 
 		t, u, r = genUsage(rxStamps)
 		print("Rx use rate = ", r)
-		subplot(212, title='rx')
+		subplot(212, title='RX usage')
 		fill_between(t, 0, u)
 		plot(t, u)
+		xlabel('Time/s')
+		yticks([])
 
 		show()

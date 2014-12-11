@@ -7,7 +7,7 @@ Version	:0.0.1
 
 """
 
-from arq import iterFile, ARQ_Protocol
+from arq import ARQ_Protocol
 
 import asyncio
 import serial
@@ -16,7 +16,26 @@ import sys, time
 from macrobull.misc import serialChecker
 
 
-class P1(ARQ_Protocol):
+def iterFileWithChunkIndex(f, chunk_size):
+	idx = 0
+	while True:
+		r = f.read(chunk_size)
+		idx += 1
+		if r: r = str(idx).encode() + b':' + r
+		yield r
+		if not r: break # yield '' for EOF
+
+records = {}
+def handleChunkIndex(idx, s):
+	s = s.decode('utf-8', 'ignore')
+	cPos = s.index(':')
+	chunk_idx, s = int(s[:cPos]), s[cPos+1:]
+	if not((idx in records) and (records[idx] == chunk_idx)):
+		records[idx] = chunk_idx
+		print('[%4d][%4d]' % (idx, chunk_idx), s)
+
+
+class Protocol_Serial(ARQ_Protocol):
 
 	def openDevice(self, dev = None):
 		kwargs = dict(baudrate = 9600, timeout = 0.01)
@@ -83,9 +102,9 @@ if __name__ == '__main__':
 		gs = 4
 		if len(sys.argv)>4: ps = int(sys.argv[4])
 		if len(sys.argv)>5: gs = int(sys.argv[5])
-		p = P1(timeout = 3.)
+		p = Protocol_Serial(timeout = 1.)
 		p.openDevice(dev)
-		p.sendPackets(iterFile(open(fn, 'rb'), ps), mode = gs)
+		p.sendFrames(iterFileWithChunkIndex(open(fn, 'rb'), ps), mode = gs)
 		time.sleep(0.1)
 		p.closeDevice()
 
@@ -93,10 +112,12 @@ if __name__ == '__main__':
 	if mode == 'recv':
 		dev = None
 		if len(sys.argv)>2: dev = int(sys.argv[2])
-		p = P1(timeout = 5., debug = False)
+		p = Protocol_Serial(timeout = 2., debug = False)
 		p.openDevice(dev)
-		p.recvPackets()
+		p.recvFrames(process = handleChunkIndex)
 		p.closeDevice()
+
+		print(records)
 
 	if fPlot:
 		def genUsage(s):
@@ -118,14 +139,18 @@ if __name__ == '__main__':
 
 		t, u, r = genUsage(txStamps)
 		print("Tx use rate = ", r)
-		subplot(211, title='tx')
+		subplot(211, title='TX usage')
 		fill_between(t, 0, u)
 		plot(t, u)
+		xlabel('Time/s')
+		yticks([])
 
 		t, u, r = genUsage(rxStamps)
 		print("Rx use rate = ", r)
-		subplot(212, title='rx')
+		subplot(212, title='RX usage')
 		fill_between(t, 0, u)
 		plot(t, u)
+		xlabel('Time/s')
+		yticks([])
 
 		show()
