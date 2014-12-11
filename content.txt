@@ -1,0 +1,4 @@
+Every year optimization algorithms are being called on to handle problems thatare much larger and complex than in the past.
+Accordingly, the book emphasizes large-scale optimization techniques, such as interior-point methods, inexact Newton methods,limited-memory methods, and the role of partially separable functions and automaticdifferentiation. It treats important topics such as trust-region methods and sequentialquadratic programming more thoroughly than existing texts, and includes comprehensivediscussion of such “core curriculum” topics as constrained optimization theory, Newtonand quasi-Newton methods, nonlinear least squares and nonlinear equations, the simplexmethod, and penalty and barrier methods for nonlinear programming.
+
+奥巴马说：“你刚刚把我批得狗血淋头，我打算上来好好还击一番。要不然你先让让？”奥巴马与科伯特在现场妙语连珠，他在科伯特主持桌后坐下前，话说得坦白：“你们老针对我的工作乱放炮，我决定了，不管，我也要骂骂你们的工作。”奥巴马接着假装是科伯特说：“如大家所知，我，史蒂芬·科伯特，从来都不喜欢我们的总统……那家伙太自大了，我猜他会以第三人称谈论自己。”此言论引来大笑与如雷掌声。
