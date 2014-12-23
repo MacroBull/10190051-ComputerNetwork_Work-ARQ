@@ -135,7 +135,7 @@ class ARQ_Protocol():
 		def routine():
 			while True:
 				try:
-					idx, data = yield from asyncio.wait_for(
+					idxf, data = yield from asyncio.wait_for(
 						self.recvFrame(), timeout = self.timeout)
 				except asyncio.TimeoutError:
 					pass
@@ -146,10 +146,20 @@ class ARQ_Protocol():
 				except Exception as e:
 					print(e)
 				else: 	# Reply ACK
-					yield from self.sendFrame(idx, True)
-					if len(data) == 0: break	# get EOF, stop
-					process(idx, data)
+					yield from self.sendFrame(idxf, True)
+					idx, alt = (idxf >> 1), idxf & 1
+					if len(data) >0:
+						if (idx not in alts) or (alts[idx] ^ alt):
+							process(idx, data)
+							alts[idx] = alt
+					else:	# get EOF, stop
+						while True:
+							idxf, data = yield from asyncio.wait_for(
+								self.recvFrame(), timeout = self.timeout)
+							if (idxf & 1) ^ alt: break
+						break
 
+		alts = {}
 		loop = asyncio.get_event_loop()
 		loop.run_until_complete(routine())
 		loop.close()
@@ -157,36 +167,44 @@ class ARQ_Protocol():
 	def sendFrames(self, src, mode = 1):
 
 		@asyncio.coroutine
-		def checkLater(idx, value): 	# Check if idx is sucessfully sent
+		def checkLater(idxf, value): 	# Check if idx is sucessfully sent
+			idx, alt = (idxf >> 1), idxf & 1
 			yield from asyncio.sleep(self.timeout)
-			if (pos[idx] == value) and (idx not in busy):
-				print("Frame {} response timeout.".format(idx))
-				busy.append(idx) 	# Reschedule
+			if (posf[idx] == value) and (idxf not in busyQueue):
+				posf[idx] = (posf[idx] & ~3) + 2
+				print("Frame {} response timeout.".format(idxf))
+				busyQueue.append(idxf) 	# Reschedule
 
 		@asyncio.coroutine
 		def send():
 			for p in src: 	# Iterate data source
 				while True:
-					while not ready:
-						while not (ready or busy): 	# Wait for ongoings
+					while not readyQueue:
+						while not (readyQueue or busyQueue): 	# Wait for ongoings
 							yield from asyncio.sleep(WAIT_STEP)
-						if ready: break
-						idx = busy.pop(0)
-						yield from self.sendFrame(idx, frames[idx])
-						asyncio.async(checkLater(idx, pos[idx]))
+#							if self.debug: print('Waiting for timeout.')
+						if readyQueue: break
+						idxf = busyQueue.pop(0)
+						idx = idxf >> 1
+						yield from self.sendFrame(idxf, frames[idx])
+						posf[idx] = (posf[idx] & ~3) + 1
+						asyncio.async(checkLater(idxf, posf[idx]))
 
-					idx = ready.pop(0)
-					if idx not in busy: break
+					idxf = readyQueue.pop(0)
+					if idxf not in busyQueue: break
 				# Queue a new chunk
-				busy.append(idx)
+				idx = idxf >> 1
+				busyQueue.append(idxf)
 				frames[idx] = p
 				cnt[0] += 1
-				pos[idx] = cnt[0]
+				posf[idx] = cnt[0] << 2
 
-			while busy:	# Finish remained works
-				idx = busy.pop(0)
-				yield from self.sendFrame(idx, frames[idx])
-				asyncio.async(checkLater(idx, pos[idx]))
+			while busyQueue:	# Finish remained works
+				idxf = busyQueue.pop(0)
+				idx = idxf >> 1
+				yield from self.sendFrame(idxf, frames[idx])
+				posf[idx] = (posf[idx] & ~3) + 1
+				asyncio.async(checkLater(idxf, posf[idx]))
 
 			cnt[2] = 0	# Sender has done
 
@@ -194,25 +212,40 @@ class ARQ_Protocol():
 		def recv():
 			while (cnt[2])or(cnt[1]<cnt[0]): 	# Still running
 				try:
-					idx, data = yield from self.recvFrame()
+					idxf, data = yield from self.recvFrame()
 				except ARQ_Error as e:	# Receive error
 					print(e)
-					idx = e.idx
-					if idx and (idx not in busy): busy.append(idx)
+					idxf = e.idx
+					idx = idxf >> 1
+					posf[idx] = (posf[idx] & ~3) + 2
+					if idxf and (idxf not in busyQueue): busyQueue.append(idxf)
 				else:
+					idx = idxf >> 1
 					if data:	# got ACK
-						ready.append(idx)
+						if (posf[idx] & 3 == 1) and (idxf not in busyQueue):
+							posf[idx] = posf[idx] & ~3
+							readyQueue.append(idxf ^ 1)
+#							if self.debug: print("Q:", idxf, '->', idxf ^ 1)
 						cnt[1] += 1
 					else:	# got NAK
-						if idx not in busy: busy.append(idx)
+						posf[idx] = (posf[idx] & ~3) + 3
+						if idxf not in busyQueue: busyQueue.append(idxf)
 
-			if self.debug: print('Counter = ', cnt[0], cnt[1])
+
+			data = False
+			while not data:
+				yield from self.sendFrame(0, b'')
+				idxf, data = yield from self.recvFrame()
+
+			yield from self.sendFrame(1, b'')
+
+			if self.debug: print('[done] {} sent, {} recv.'.format(cnt[0], cnt[1]))
 			loop.stop()
 
 		cnt = [0, 0, 1] # tx_cnt, rx_cnt, state
-		ready = list(range(mode))
-		busy = []
-		pos = [0 for i in range(mode)]
+		readyQueue = list(range(0, mode*2, 2))
+		busyQueue = []
+		posf = [0 for i in range(mode)]
 		frames = [None for i in range(mode)]
 
 		loop = asyncio.get_event_loop()

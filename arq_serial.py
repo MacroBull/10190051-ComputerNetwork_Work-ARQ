@@ -18,20 +18,32 @@ from macrobull.misc import serialChecker
 
 def iterFileWithChunkIndex(f, chunk_size):
 	idx = 0
+	buf = b''
 	while True:
-		r = f.read(chunk_size)
+		if len(buf) < chunk_size: buf += f.read(chunk_size)
+		p = buf.find(b'\n') +1
+		if (0<p<chunk_size):
+			r = buf[:p]
+			buf = buf[p:]
+		elif len(buf):
+			r = buf[:chunk_size]
+			buf = buf[chunk_size:]
+		else:
+			break
 		idx += 1
 		if r: r = str(idx).encode() + b':' + r
 		yield r
-		if not r: break # yield '' for EOF
 
 records = {}
+chunks = {}
 def handleChunkIndex(idx, s):
 	s = s.decode('utf-8', 'ignore')
 	cPos = s.index(':')
 	chunk_idx, s = int(s[:cPos]), s[cPos+1:]
-	if not((idx in records) and (records[idx] == chunk_idx)):
+#	if not((idx in records) and (records[idx] == chunk_idx)):
+	if True:
 		records[idx] = chunk_idx
+		chunks[chunk_idx] = chunks[chunk_idx] + 1 if chunk_idx in chunks else 1
 		print('[%4d][%4d]' % (idx, chunk_idx), s)
 
 
@@ -74,6 +86,10 @@ class Protocol_Serial(ARQ_Protocol):
 
 if __name__ == '__main__':
 
+	debug = False
+	if sys.argv.count('-d'):
+		sys.argv.pop(sys.argv.index('-d'))
+		debug = True
 	fPlot = False
 	if sys.argv.count('-p'):
 		sys.argv.pop(sys.argv.index('-p'))
@@ -83,10 +99,11 @@ if __name__ == '__main__':
 		fPlot = True
 
 	if len(sys.argv) < 2:
-		print("python3 arq_socket.py : ")
+		print("python3 arq_serial.py : ")
 		print("\tsend <device> <filename> [packet size] [group size]\t: Send file")
 		print("\trecv [device] \t\t: Receive content")
 		print("\t-p; --plot \t\t: plot channel usage")
+		print("\t-d \t\t\t: debug")
 		print("")
 		mode = None
 
@@ -103,7 +120,7 @@ if __name__ == '__main__':
 		gs = 4
 		if len(sys.argv)>4: ps = int(sys.argv[4])
 		if len(sys.argv)>5: gs = int(sys.argv[5])
-		p = Protocol_Serial(timeout = 1., debug = False)
+		p = Protocol_Serial(timeout = 1., debug = debug)
 		p.openDevice(dev)
 		p.sendFrames(iterFileWithChunkIndex(open(fn, 'rb'), ps), mode = gs)
 		time.sleep(0.1)
@@ -112,16 +129,24 @@ if __name__ == '__main__':
 
 	if mode == 'recv':
 		dev = None
-		if len(sys.argv)>2: dev = int(sys.argv[2])
-		p = Protocol_Serial(timeout = 2., debug = False)
+		if len(sys.argv)>2: dev = sys.argv[2]
+		p = Protocol_Serial(timeout =2., debug = debug)
 		p.openDevice(dev)
 		p.recvFrames(process = handleChunkIndex)
 		p.closeDevice()
 
-		print(records)
+		err = {}
+		for c in range(1, max(chunks.keys())):
+			if not(c in chunks and chunks[c] == 1):
+				err[c] = chunks[c] if c in chunks else 0
+
+		if err:
+			print(records)
+			print(err)
 
 	if fPlot:
-		SR = 400
+#		SR = 400
+		SR = int(len(txStamps) / 20000) + 1
 		def genUsage(s):
 			ss = 0
 			t_st = s[0]

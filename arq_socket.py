@@ -29,7 +29,8 @@ def handleChunkIndex(idx, s):
 	s = s.decode('utf-8', 'ignore')
 	cPos = s.index(':')
 	chunk_idx, s = int(s[:cPos]), s[cPos+1:]
-	if not((idx in records) and (records[idx] == chunk_idx)):
+#	if not((idx in records) and (records[idx] == chunk_idx)):
+	if True:
 		records[idx] = chunk_idx
 		print('[%4d][%4d]' % (idx, chunk_idx), s)
 
